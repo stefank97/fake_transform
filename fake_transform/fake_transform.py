@@ -8,6 +8,9 @@ from tf2_ros import TransformBroadcaster
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy, QoSHistoryPolicy
 from rclpy.duration import Duration
+from geometry_msgs.msg import Vector3
+from rclpy.parameter import Parameter
+from std_msgs.msg import Empty
 
 #AI generated functions for quaternion/euler conversions
 def quaternion_from_euler(roll, pitch, yaw):
@@ -93,6 +96,28 @@ class PoseAttackerNode(Node):
         )
         self.amcl_sub = self.create_subscription(PoseWithCovarianceStamped, 'amcl_pose', self.amcl_callback, amcl_qos) #before depth "10" instead of amcl_qos
         self.amcl_pub = self.create_publisher(PoseWithCovarianceStamped, 'amcl_pose', amcl_qos) #before depth "10" instead of amcl_qos
+        
+        #Rviz drift subscription
+        self.drift_sub = self.create_subscription(Vector3, 'fake_transform/drift', self.drift_callback, 10)
+        
+
+    #Callback for drift updates (rviz plugin)
+    def drift_callback(self, msg):
+        self.offset_drift_x = msg.x
+        self.offset_drift_y = msg.y
+        self.offset_drift_yaw = msg.z
+        self.get_logger().info(f"Updated drift to x: {msg.x}, y: {msg.y}, yaw(deg): {math.degrees(msg.z)}")
+
+        self.set_parameters([rclpy.parameter.Parameter("offset_drift_x", rclpy.Parameter.Type.DOUBLE, msg.x)])
+        self.set_parameters([rclpy.parameter.Parameter("offset_drift_y", rclpy.Parameter.Type.DOUBLE, msg.y)])
+        self.set_parameters([rclpy.parameter.Parameter("offset_drift_yaw_deg", rclpy.Parameter.Type.DOUBLE, math.degrees(msg.z))])
+
+        if msg.x == 0.0 and msg.y == 0.0 and msg.z == 0.0:
+            self.offset_x = 0.0
+            self.offset_y = 0.0
+            self.offset_yaw = 0.0
+            self.get_logger().info("Offsets reset to zero")
+
 
 
     def timer_callback(self):
