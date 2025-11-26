@@ -10,7 +10,7 @@ from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy, QoS
 from rclpy.duration import Duration
 from geometry_msgs.msg import Vector3
 from rclpy.parameter import Parameter
-from std_msgs.msg import Empty
+
 
 #AI generated functions for quaternion/euler conversions
 def quaternion_from_euler(roll, pitch, yaw):
@@ -140,7 +140,7 @@ class PoseAttackerNode(Node):
 
 
         #Publish fake tf if last tf is available
-        if self.reference_transform is not None:
+        if self.reference_transform is not None:    
             self.fake_tf_publish()
             #self.get_logger().info(f"Publishing fake transform")
 
@@ -154,13 +154,30 @@ class PoseAttackerNode(Node):
 
 
     def fake_tf_publish(self):
+
+
+
+        if self.reference_transform is None:
+            self.get_logger().warn("No reference tf available yet, skipping.")
+            return
+        
+
         base = self.reference_transform
         self.get_logger().debug(f"Using base transform: \n{base}")
-        t = TransformStamped()
-        t.header.stamp = base.header.stamp   #Use the same timestamp as the real amcl tf, to avoid inconsistencies
 
-        t.header.frame_id = 'map'
-        t.child_frame_id = 'odom'
+        #No offset, no drift?:
+        nothing_set = (abs(self.offset_x) < 1e-9 and abs(self.offset_y) < 1e-9 and abs(self.offset_z) < 1e-9 and abs(self.offset_yaw) < 1e-9 and abs(self.offset_drift_x) < 1e-9 and abs(self.offset_drift_y) < 1e-9 and abs(self.offset_drift_yaw) < 1e-9)
+
+        if nothing_set:
+            base.header.stamp = self.get_clock().now().to_msg()
+            self.broadcaster.sendTransform(base)
+            return
+
+        t = TransformStamped()
+#        t.header.stamp = base.header.stamp   #Use the same timestamp as the real amcl tf, to avoid inconsistencies
+
+        t.header.frame_id = base.header.frame_id
+        t.child_frame_id = base.child_frame_id
 
         t.transform.translation.x = base.transform.translation.x + self.offset_x
         t.transform.translation.y = base.transform.translation.y + self.offset_y
@@ -181,6 +198,7 @@ class PoseAttackerNode(Node):
 
         #Update timestamp to current time, to avoid warnings (TF_OLD_DATA)
         t.header.stamp = self.get_clock().now().to_msg()
+        #t.header.stamp = base.header.stamp
 
         self.broadcaster.sendTransform(t)
         self.get_logger().debug(f"Published fake transform: \n{t}")
@@ -189,16 +207,25 @@ class PoseAttackerNode(Node):
 
     def amcl_callback(self, msg):
         
-        if self.timer is None:   
+        if self.timer is None:
             amcl_tf = self.save_tf(msg)
 
-            if amcl_tf is not None:                     #Create & start timer on first received amcl message, to ensure tf buffer is filled
-                self.reference_transform = amcl_tf      #fill the "real" transform once
-                self.reference_pose = msg               #fill the "real" pose once
-                #Timer for publisher
+            if amcl_tf is not None:
+                self.reference_transform = amcl_tf
+                self.reference_pose = msg
+
                 hz_to_sec = 1.0 / self.rate_hz
                 self.timer = self.create_timer(hz_to_sec, self.timer_callback)
-                self.get_logger().debug(f"Received real amcl message: \n{amcl_tf}")
+                self.get_logger().debug(f"Received real amcl message: \n{amcl_tf}")   
+            
+        else:
+
+            amcl_tf = self.save_tf(msg)
+            if amcl_tf is not None:
+                self.reference_transform = amcl_tf      #fill the "real" transform once
+            self.reference_pose = msg
+
+
 
 
 
@@ -236,6 +263,7 @@ class PoseAttackerNode(Node):
         #Update timestamp to current time, to avoid warnings Testweise!!
         #rt = rclpy.time.Time()
         fake_msg.header.stamp = self.get_clock().now().to_msg()
+        #fake_msg.header.stamp = ref.header.stamp
 
         self.amcl_pub.publish(fake_msg)
         self.get_logger().debug(f"Published fake amcl pose: \n{fake_msg}")
@@ -243,22 +271,22 @@ class PoseAttackerNode(Node):
 
     def save_tf(self, msg):
         #save tf of map-odom 
-        #Lookup the latest transform from map to odom
         try:
             req_stamp = rclpy.time.Time.from_msg(msg.header.stamp)
-            #Use the exact timestamp from amcl
+
             if self.tf_buffer.can_transform("map", "odom", req_stamp, timeout=Duration(seconds=0.5)):
                 tf = self.tf_buffer.lookup_transform("map", "odom", req_stamp, Duration(seconds=0.5))
-                self.get_logger().debug("Found tf: " + str(tf))
+                self.get_logger().debug("Found map-odom tf: " + str(tf))
                 return tf
-            #Fallback: If the required timestamp is not in the buffer, use the latest available transform
             if self.tf_buffer.can_transform("map", "odom", rclpy.time.Time(), timeout=Duration(seconds=0.5)):
                 tf = self.tf_buffer.lookup_transform("map", "odom", rclpy.time.Time(), Duration(seconds=0.5))
-                self.get_logger().info("Required stamp not in buffer, using latest tf instead")
+                self.get_logger().debug("Found map-odom tf: " + str(tf))
                 return tf
+
         except Exception as e:
             self.get_logger().warn(f"TF lookup failed: \n{e}")
             return None
+        
         self.get_logger().warn("TF lookup failed: No transform in buffer")
         return None
 
