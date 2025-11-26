@@ -3,8 +3,8 @@
 <package format="3">
   <name>fake_transform</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="ros@todo.todo">ros</maintainer>
+  <description>Adds configurable offsets to a map-odom transform.</description>
+  <maintainer email="stefan.kessler97@gmail.com">ros</maintainer>
   <license>TODO: License declaration</license>
 
   <depend>rclpy</depend>
